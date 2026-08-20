@@ -1,300 +1,317 @@
 // ============================================
-// NBT Writer + Litematic Generator
+// NBT Binary Writer
 // ============================================
-
 class NBTWriter {
     constructor() {
-        this.buffer = [];
+        this.parts = [];
+        this.size = 0;
     }
 
-    writeByte(val) { this.buffer.push(val & 0xFF); }
-
-    writeShort(val) {
-        this.buffer.push((val >> 8) & 0xFF);
-        this.buffer.push(val & 0xFF);
+    _push(bytes) {
+        this.parts.push(bytes);
+        this.size += bytes.length;
     }
 
-    writeInt(val) {
-        this.buffer.push((val >> 24) & 0xFF);
-        this.buffer.push((val >> 16) & 0xFF);
-        this.buffer.push((val >> 8) & 0xFF);
-        this.buffer.push(val & 0xFF);
+    writeByte(v) { this._push(new Uint8Array([v & 0xFF])); }
+
+    writeShort(v) {
+        const buf = new ArrayBuffer(2);
+        new DataView(buf).setInt16(0, v, false); // big-endian
+        this._push(new Uint8Array(buf));
     }
 
-    writeLong(val) {
-        // BigInt support for 64-bit
-        const big = BigInt(val);
-        for (let i = 56; i >= 0; i -= 8) {
-            this.buffer.push(Number((big >> BigInt(i)) & 0xFFn));
-        }
+    writeInt(v) {
+        const buf = new ArrayBuffer(4);
+        new DataView(buf).setInt32(0, v, false);
+        this._push(new Uint8Array(buf));
+    }
+
+    writeLong(v) {
+        const buf = new ArrayBuffer(8);
+        const dv = new DataView(buf);
+        let big = typeof v === 'bigint' ? v : BigInt(v);
+        // Handle negative: convert to unsigned representation
+        if (big < 0n) big += (1n << 64n);
+        dv.setUint32(0, Number((big >> 32n) & 0xFFFFFFFFn), false);
+        dv.setUint32(4, Number(big & 0xFFFFFFFFn), false);
+        this._push(new Uint8Array(buf));
     }
 
     writeString(str) {
         const encoded = new TextEncoder().encode(str);
         this.writeShort(encoded.length);
-        for (const byte of encoded) this.buffer.push(byte);
+        this._push(encoded);
     }
 
-    // Tag types
-    static TAG_END = 0;
-    static TAG_BYTE = 1;
-    static TAG_SHORT = 2;
-    static TAG_INT = 3;
-    static TAG_LONG = 4;
-    static TAG_FLOAT = 5;
-    static TAG_DOUBLE = 6;
-    static TAG_BYTE_ARRAY = 7;
-    static TAG_STRING = 8;
-    static TAG_LIST = 9;
-    static TAG_COMPOUND = 10;
-    static TAG_INT_ARRAY = 11;
-    static TAG_LONG_ARRAY = 12;
+    // Tag IDs
+    static END = 0;
+    static BYTE = 1;
+    static SHORT = 2;
+    static INT = 3;
+    static LONG = 4;
+    static FLOAT = 5;
+    static DOUBLE = 6;
+    static BYTE_ARRAY = 7;
+    static STRING = 8;
+    static LIST = 9;
+    static COMPOUND = 10;
+    static INT_ARRAY = 11;
+    static LONG_ARRAY = 12;
 
-    writeTagHeader(type, name) {
+    tagHeader(type, name) {
         this.writeByte(type);
         if (name !== null) this.writeString(name);
     }
 
-    writeCompoundStart(name) {
-        this.writeTagHeader(NBTWriter.TAG_COMPOUND, name);
-    }
+    compoundStart(name) { this.tagHeader(NBTWriter.COMPOUND, name); }
+    compoundEnd() { this.writeByte(NBTWriter.END); }
 
-    writeCompoundEnd() {
-        this.writeByte(NBTWriter.TAG_END);
-    }
-
-    writeStringTag(name, val) {
-        this.writeTagHeader(NBTWriter.TAG_STRING, name);
+    stringTag(name, val) {
+        this.tagHeader(NBTWriter.STRING, name);
         this.writeString(val);
     }
 
-    writeIntTag(name, val) {
-        this.writeTagHeader(NBTWriter.TAG_INT, name);
+    intTag(name, val) {
+        this.tagHeader(NBTWriter.INT, name);
         this.writeInt(val);
     }
 
-    writeLongTag(name, val) {
-        this.writeTagHeader(NBTWriter.TAG_LONG, name);
+    longTag(name, val) {
+        this.tagHeader(NBTWriter.LONG, name);
         this.writeLong(val);
     }
 
-    writeListStart(name, elementType, count) {
-        this.writeTagHeader(NBTWriter.TAG_LIST, name);
-        this.writeByte(elementType);
+    listStart(name, elemType, count) {
+        this.tagHeader(NBTWriter.LIST, name);
+        this.writeByte(elemType);
         this.writeInt(count);
     }
 
-    writeCompoundInList() {
-        // No tag header for list elements (type is declared in list header)
-    }
-
-    writeLongArrayTag(name, longs) {
-        this.writeTagHeader(NBTWriter.TAG_LONG_ARRAY, name);
+    longArrayTag(name, longs) {
+        this.tagHeader(NBTWriter.LONG_ARRAY, name);
         this.writeInt(longs.length);
         for (const l of longs) this.writeLong(l);
     }
 
-    toArrayBuffer() {
-        return new Uint8Array(this.buffer).buffer;
+    toBuffer() {
+        const result = new Uint8Array(this.size);
+        let offset = 0;
+        for (const part of this.parts) {
+            result.set(part, offset);
+            offset += part.length;
+        }
+        return result.buffer;
     }
 }
 
 // ============================================
-// Litematic file builder
+// Gzip compression
 // ============================================
+async function gzipCompress(buffer) {
+    const cs = new CompressionStream('gzip');
+    const writer = cs.writable.getWriter();
+    const reader = cs.readable.getReader();
 
-async function generateLitematic(pixelArtData, orientation) {
-    const { blockMap, paletteArr, w, h, skippedCount } = pixelArtData;
+    writer.write(new Uint8Array(buffer));
+    writer.close();
 
-    // Determine dimensions based on orientation
-    let sizeX, sizeY, sizeZ;
-    if (orientation === 'vertical') {
-        sizeX = w; sizeY = h; sizeZ = 1;
-    } else {
-        sizeX = w; sizeY = 1; sizeZ = h;
+    const chunks = [];
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
     }
 
-    const totalVolume = sizeX * sizeY * sizeZ;
-
-    // Build unique palette (block names)
-    const uniqueBlocks = new Set();
-    for (let i = 0; i < blockMap.length; i++) {
-        if (blockMap[i] === -1) continue;
-        uniqueBlocks.add(paletteArr[blockMap[i]][3]);
+    const totalLen = chunks.reduce((s, c) => s + c.length, 0);
+    const result = new Uint8Array(totalLen);
+    let offset = 0;
+    for (const chunk of chunks) {
+        result.set(chunk, offset);
+        offset += chunk.length;
     }
+    return result.buffer;
+}
 
-    // Palette: index 0 = air, then unique blocks
-    const palette = ['minecraft:air'];
-    const blockToIndex = { 'minecraft:air': 0 };
-    for (const name of uniqueBlocks) {
-        const fullName = `minecraft:${name}`;
-        if (!(fullName in blockToIndex)) {
-            blockToIndex[fullName] = palette.length;
-            palette.push(fullName);
-        }
-    }
-
-    // Bits per block
-    const bitsPerBlock = Math.max(2, Math.ceil(Math.log2(palette.length)));
+// ============================================
+// Pack block indices into long array (Litematica format)
+// ============================================
+function packBlocks(blockIndices, totalVolume, paletteSize) {
+    const bitsPerBlock = Math.max(2, Math.ceil(Math.log2(Math.max(paletteSize, 2))));
     const blocksPerLong = Math.floor(64 / bitsPerBlock);
     const totalLongs = Math.ceil(totalVolume / blocksPerLong);
     const mask = (1n << BigInt(bitsPerBlock)) - 1n;
 
-    // Build block array
-    // Litematica order: Y (slowest), Z, X (fastest)
-    const blockIndices = new Int32Array(totalVolume);
-    let totalBlocks = 0;
+    const longs = [];
 
-    for (let y = 0; y < h; y++) {
-        for (let x = 0; x < w; x++) {
-            const palIdx = blockMap[y * w + x];
-            if (palIdx === -1) continue;
+    for (let longIdx = 0; longIdx < totalLongs; longIdx++) {
+        let packed = 0n;
+        for (let bitIdx = 0; bitIdx < blocksPerLong; bitIdx++) {
+            const blockPos = longIdx * blocksPerLong + bitIdx;
+            if (blockPos >= totalVolume) break;
+            const val = BigInt(blockIndices[blockPos]) & mask;
+            packed |= val << BigInt(bitIdx * bitsPerBlock);
+        }
+        // Convert unsigned 64-bit to signed
+        if (packed >= (1n << 63n)) {
+            packed -= (1n << 64n);
+        }
+        longs.push(packed);
+    }
 
-            const blockName = `minecraft:${paletteArr[palIdx][3]}`;
-            const blockIdx = blockToIndex[blockName];
+    return longs;
+}
+
+// ============================================
+// Generate .litematic file
+// ============================================
+async function generateLitematic(pixelArtData, orientation) {
+    const { blockMap, paletteArr, w, h } = pixelArtData;
+
+    // Region dimensions
+    const sizeX = w;
+    const sizeY = orientation === 'vertical' ? h : 1;
+    const sizeZ = orientation === 'vertical' ? 1 : h;
+    const totalVolume = sizeX * sizeY * sizeZ;
+
+    // Build unique block palette
+    // Index 0 = air, rest = unique blocks
+    const paletteNames = ['minecraft:air'];
+    const nameToIndex = new Map();
+    nameToIndex.set('minecraft:air', 0);
+
+    for (let i = 0; i < blockMap.length; i++) {
+        const palIdx = blockMap[i];
+        if (palIdx < 0) continue;
+        const fullName = 'minecraft:' + paletteArr[palIdx][3];
+        if (!nameToIndex.has(fullName)) {
+            nameToIndex.set(fullName, paletteNames.length);
+            paletteNames.push(fullName);
+        }
+    }
+
+    // Fill block index array
+    // Litematica block order: index = y * (sizeZ * sizeX) + z * sizeX + x
+    const indices = new Uint32Array(totalVolume); // 0 = air by default
+    let nonAirCount = 0;
+
+    for (let imgY = 0; imgY < h; imgY++) {
+        for (let imgX = 0; imgX < w; imgX++) {
+            const palIdx = blockMap[imgY * w + imgX];
+            if (palIdx < 0) continue;
+
+            const fullName = 'minecraft:' + paletteArr[palIdx][3];
+            const blockIdx = nameToIndex.get(fullName);
 
             let bx, by, bz;
             if (orientation === 'vertical') {
-                bx = x;
-                by = h - 1 - y; // flip Y so top of image = top of build
+                bx = imgX;
+                by = (h - 1) - imgY; // flip so image top = build top
                 bz = 0;
             } else {
-                bx = x;
+                bx = imgX;
                 by = 0;
-                bz = y;
+                bz = imgY;
             }
 
-            // Index: y * (zSize * xSize) + z * xSize + x
             const idx = by * (sizeZ * sizeX) + bz * sizeX + bx;
-            blockIndices[idx] = blockIdx;
-            totalBlocks++;
+            indices[idx] = blockIdx;
+            nonAirCount++;
         }
     }
 
     // Pack into long array
-    const longArray = [];
-    for (let i = 0; i < totalLongs; i++) {
-        let longVal = 0n;
-        for (let j = 0; j < blocksPerLong; j++) {
-            const blockIdx = i * blocksPerLong + j;
-            if (blockIdx >= totalVolume) break;
-            const val = BigInt(blockIndices[blockIdx]) & mask;
-            longVal |= val << BigInt(j * bitsPerBlock);
-        }
-        // Convert to signed 64-bit
-        if (longVal >= (1n << 63n)) {
-            longVal -= (1n << 64n);
-        }
-        longArray.push(longVal);
-    }
+    const longArray = packBlocks(indices, totalVolume, paletteNames.length);
 
-    // Build NBT
+    // ---- Build NBT ----
     const nbt = new NBTWriter();
     const now = BigInt(Date.now());
 
-    // Root compound (unnamed for litematic — but NBT root needs name)
-    nbt.writeCompoundStart('');
+    // Root compound
+    nbt.compoundStart('');
+
+    // Version (checked first by litematica)
+    nbt.intTag('Version', 7);
+    nbt.intTag('MinecraftDataVersion', 3955); // 1.21.1
 
     // Metadata
-    nbt.writeCompoundStart('Metadata');
-    nbt.writeStringTag('Author', '0xMew');
-    nbt.writeStringTag('Description', 'Generated by MC Pixel Art Generator');
-    nbt.writeCompoundStart('EnclosingSize');
-    nbt.writeIntTag('x', sizeX);
-    nbt.writeIntTag('y', sizeY);
-    nbt.writeIntTag('z', sizeZ);
-    nbt.writeCompoundEnd();
-    nbt.writeStringTag('Name', 'PixelArt');
-    nbt.writeIntTag('RegionCount', 1);
-    nbt.writeLongTag('TimeCreated', now);
-    nbt.writeLongTag('TimeModified', now);
-    nbt.writeIntTag('TotalBlocks', totalBlocks);
-    nbt.writeIntTag('TotalVolume', totalVolume);
-    nbt.writeIntTag('LitematicVersion', 7);
-    nbt.writeCompoundEnd(); // end Metadata
+    nbt.compoundStart('Metadata');
+    nbt.stringTag('Author', '0xMew');
+    nbt.stringTag('Description', '');
+    nbt.compoundStart('EnclosingSize');
+    nbt.intTag('x', sizeX);
+    nbt.intTag('y', sizeY);
+    nbt.intTag('z', sizeZ);
+    nbt.compoundEnd();
+    nbt.stringTag('Name', 'PixelArt');
+    nbt.intTag('RegionCount', 1);
+    nbt.longTag('TimeCreated', now);
+    nbt.longTag('TimeModified', now);
+    nbt.intTag('TotalBlocks', nonAirCount);
+    nbt.intTag('TotalVolume', totalVolume);
+    nbt.intTag('LitematicVersion', 7);
+    nbt.compoundEnd(); // Metadata
 
     // Regions
-    nbt.writeCompoundStart('Regions');
-    nbt.writeCompoundStart('PixelArt');
+    nbt.compoundStart('Regions');
+    nbt.compoundStart('PixelArt');
 
-    // BlockEntities (empty list of compounds)
-    nbt.writeListStart('BlockEntities', NBTWriter.TAG_COMPOUND, 0);
+    nbt.listStart('BlockEntities', NBTWriter.COMPOUND, 0);
+    nbt.longArrayTag('Blocks', longArray);
+    nbt.listStart('Entities', NBTWriter.COMPOUND, 0);
+    nbt.listStart('PendingBlockTicks', NBTWriter.COMPOUND, 0);
+    nbt.listStart('PendingFluidTicks', NBTWriter.COMPOUND, 0);
 
-    // Blocks (long array)
-    nbt.writeLongArrayTag('Blocks', longArray);
+    nbt.compoundStart('Position');
+    nbt.intTag('x', 0);
+    nbt.intTag('y', 0);
+    nbt.intTag('z', 0);
+    nbt.compoundEnd();
 
-    // Entities (empty list of compounds)
-    nbt.writeListStart('Entities', NBTWriter.TAG_COMPOUND, 0);
+    nbt.compoundStart('Size');
+    nbt.intTag('x', sizeX);
+    nbt.intTag('y', sizeY);
+    nbt.intTag('z', sizeZ);
+    nbt.compoundEnd();
 
-    // PendingBlockTicks (empty list)
-    nbt.writeListStart('PendingBlockTicks', NBTWriter.TAG_COMPOUND, 0);
-
-    // PendingFluidTicks (empty list)
-    nbt.writeListStart('PendingFluidTicks', NBTWriter.TAG_COMPOUND, 0);
-
-    // Position
-    nbt.writeCompoundStart('Position');
-    nbt.writeIntTag('x', 0);
-    nbt.writeIntTag('y', 0);
-    nbt.writeIntTag('z', 0);
-    nbt.writeCompoundEnd();
-
-    // Size
-    nbt.writeCompoundStart('Size');
-    nbt.writeIntTag('x', sizeX);
-    nbt.writeIntTag('y', sizeY);
-    nbt.writeIntTag('z', sizeZ);
-    nbt.writeCompoundEnd();
-
-    // Palette (list of compounds)
-    nbt.writeListStart('Palette', NBTWriter.TAG_COMPOUND, palette.length);
-    for (const blockName of palette) {
-        nbt.writeStringTag('Name', blockName);
-        // Empty properties (required by some litematica versions)
-        nbt.writeTagHeader(NBTWriter.TAG_COMPOUND, 'Properties');
-        nbt.writeCompoundEnd();
-        nbt.writeCompoundEnd(); // end this palette compound
+    // Palette
+    nbt.listStart('Palette', NBTWriter.COMPOUND, paletteNames.length);
+    for (const name of paletteNames) {
+        nbt.stringTag('Name', name);
+        nbt.compoundEnd();
     }
 
-    nbt.writeCompoundEnd(); // end PixelArt region
-    nbt.writeCompoundEnd(); // end Regions
+    nbt.compoundEnd(); // PixelArt
+    nbt.compoundEnd(); // Regions
 
-    // MinecraftDataVersion (1.21.1 = 3955)
-    nbt.writeIntTag('MinecraftDataVersion', 3955);
+    nbt.compoundEnd(); // Root
 
-    // Version (litematic format version — required at root level)
-    nbt.writeIntTag('Version', 7);
+    // Get raw NBT bytes
+    const rawNbt = nbt.toBuffer();
 
-    nbt.writeCompoundEnd(); // end root
+    // Gzip compress
+    const compressed = await gzipCompress(rawNbt);
 
-    // Get raw bytes
-    const rawBuffer = nbt.toArrayBuffer();
+    console.log(`[Litematic] Palette: ${paletteNames.length} blocks, Volume: ${totalVolume}, NonAir: ${nonAirCount}, Longs: ${longArray.length}`);
+    console.log(`[Litematic] Raw NBT: ${rawNbt.byteLength} bytes, Compressed: ${compressed.byteLength} bytes`);
 
-    // Gzip compress using CompressionStream
-    const compressed = await gzipCompress(rawBuffer);
-
-    return { data: compressed, totalBlocks, paletteSize: palette.length };
+    return { data: compressed, totalBlocks: nonAirCount, paletteSize: paletteNames.length };
 }
 
-async function gzipCompress(buffer) {
-    const stream = new Blob([buffer])
-        .stream()
-        .pipeThrough(new CompressionStream('gzip'));
-
-    const compressedBlob = await new Response(stream).blob();
-    return await compressedBlob.arrayBuffer();
-}
-
+// ============================================
+// Download helper
+// ============================================
 function downloadLitematic(data, filename) {
     const blob = new Blob([data], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = filename || 'pixel_art.litematic';
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
 }
 
-// Expose to global scope
+// Expose
 window.generateLitematic = generateLitematic;
 window.downloadLitematic = downloadLitematic;
