@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MC Pixel Art Generator</title>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Floating orbs background -->
+    <div class="orbs-container">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="orb orb-3"></div>
+        <div class="orb orb-4"></div>
+        <div class="orb orb-5"></div>
+        <div class="orb orb-6"></div>
+        <div class="orb orb-7"></div>
+    </div>
+
+    <div class="app-layout" id="appLayout">
+        <!-- Canvas (behind sidebar, always rendered) -->
+        <div class="canvas-wrap">
+            <div class="canvas-inner">
+                <div class="canvas-header">
+                    <h1>MC Pixel Art</h1>
+                    <p>Конвертируй изображения в Minecraft-пиксель-арт</p>
+                </div>
+
+                <div class="canvas-card hidden" id="previewCard">
+                    <div class="canvas-card-title">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        Превью
+                    </div>
+                    <div class="preview-grid">
+                        <div class="preview-box"><h3>Оригинал</h3><div class="preview-canvas-wrap"><canvas id="originalPreview"></canvas></div></div>
+                        <div class="preview-box"><h3>Pixel Art</h3><div class="preview-canvas-wrap"><canvas id="pixelPreview"></canvas></div></div>
+                    </div>
+                    <div class="stats">
+                        <div class="stat-item"><span class="stat-value" id="statBlocks">0</span><span class="stat-label">Блоков</span></div>
+                        <div class="stat-item"><span class="stat-value" id="statSize">0x0</span><span class="stat-label">Размер</span></div>
+                        <div class="stat-item"><span class="stat-value" id="statPalette">0</span><span class="stat-label">Палитра</span></div>
+                        <div class="stat-item"><span class="stat-value" id="statTime">0ms</span><span class="stat-label">Время</span></div>
+                    </div>
+                </div>
+
+                <div class="canvas-card hidden" id="viewer3dCard">
+                    <div class="canvas-card-title">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+                        3D Визуализация
+                    </div>
+                    <div class="viewer-3d-wrap" id="viewer3dContainer">
+                        <div class="viewer-3d-controls">
+                            <button class="view-3d-btn" onclick="resetCamera3D()">Сброс</button>
+                            <button class="view-3d-btn" onclick="viewFront3D()">Спереди</button>
+                            <button class="view-3d-btn" onclick="viewTop3D()">Сверху</button>
+                            <button class="view-3d-btn" onclick="viewAngle3D()">Под углом</button>
+                        </div>
+                        <div class="viewer-3d-info">ЛКМ — вращение &middot; Колёсико — зум &middot; ПКМ — перемещение</div>
+                    </div>
+                </div>
+
+                <div class="canvas-card hidden" id="legendCard">
+                    <div class="canvas-card-title">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                        Используемые блоки
+                    </div>
+                    <div class="legend-summary" id="legendSummary"></div>
+                    <div class="legend-container">
+                        <table class="legend-table">
+                            <thead><tr><th>Цвет</th><th>Блок</th><th style="text-align:right">Кол-во</th><th style="text-align:right">%</th></tr></thead>
+                            <tbody id="legendBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Footer -->
+                <footer class="site-footer">
+                    <p>&copy; 2026 <a href="https://github.com/0xmewhx" target="_blank" rel="noopener">0xMew</a>. All rights reserved.</p>
+                </footer>
+            </div>
+        </div>
+
+        <!-- Welcome overlay -->
+        <div class="welcome-overlay" id="welcomeOverlay">
+            <div class="welcome-content">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+                <h2>Загрузите изображение</h2>
+                <p>Перетащите файл в область выше или нажмите на неё</p>
+            </div>
+        </div>
+
+        <!-- Sidebar (on top, acts as curtain) -->
+        <aside class="sidebar">
+            <div class="sidebar-section">
+                <div class="sidebar-title">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    Изображение
+                </div>
+                <div class="drop-zone" id="dropZone">
+                    <div class="drop-zone-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></div>
+                    <div class="drop-zone-text">Перетащите или <strong>нажмите для выбора</strong><br><small style="opacity:0.5;margin-top:0.3rem;display:inline-block">PNG, JPG, WebP</small></div>
+                </div>
+                <input type="file" id="fileInput" accept="image/*">
+            </div>
+
+            <div class="sidebar-section">
+                <div class="sidebar-title">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                    Настройки
+                </div>
+                <div class="settings-list">
+                    <div class="setting-item">
+                        <label>Насыщенность: <span class="setting-value" id="saturationValue">1.4</span></label>
+                        <input type="range" id="saturation" min="0" max="3" step="0.1" value="1.4">
+                    </div>
+                    <div class="setting-row">
+                        <div class="setting-item"><label>Макс. ширина</label><input type="number" id="maxWidth" value="128" min="8" max="512"></div>
+                        <div class="setting-item"><label>Макс. высота</label><input type="number" id="maxHeight" value="128" min="8" max="512"></div>
+                    </div>
+                    <div class="setting-row">
+                        <div class="setting-item"><label>R: <span class="setting-value" id="wrValue">2</span></label><input type="range" id="weightR" min="1" max="6" step="1" value="2"></div>
+                        <div class="setting-item"><label>G: <span class="setting-value" id="wgValue">4</span></label><input type="range" id="weightG" min="1" max="6" step="1" value="4"></div>
+                    </div>
+                    <div class="setting-item"><label>B: <span class="setting-value" id="wbValue">3</span></label><input type="range" id="weightB" min="1" max="6" step="1" value="3"></div>
+                    <div class="setting-item">
+                        <label>Ориентация</label>
+                        <div class="orientation-toggle">
+                            <button class="orientation-btn active" id="orientVertical" onclick="setOrientation('vertical')">Стена</button>
+                            <button class="orientation-btn" id="orientHorizontal" onclick="setOrientation('horizontal')">Пол</button>
+                        </div>
+                    </div>
+                    <div class="setting-item">
+                        <label>Зеркало</label>
+                        <div class="orientation-toggle">
+                            <button class="orientation-btn" id="flipHBtn" onclick="toggleFlip('h')">Гориз.</button>
+                            <button class="orientation-btn" id="flipVBtn" onclick="toggleFlip('v')">Верт.</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="sidebar-title">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="13.5" cy="6.5" r="1.5"/><circle cx="17.5" cy="10.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>
+                    Палитра
+                </div>
+                <div class="palette-actions">
+                    <button class="btn-small" onclick="toggleAllPalettes(true)">Все</button>
+                    <button class="btn-small" onclick="toggleAllPalettes(false)">Снять</button>
+                </div>
+                <div class="palette-grid" id="paletteGrid"></div>
+            </div>
+
+            <div class="btn-group">
+                <button class="btn btn-primary" id="generateBtn" disabled>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                    Сгенерировать
+                </button>
+                <button class="btn btn-anarchy" id="anarchyBtn" disabled>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                    Анархия
+                </button>
+                <button class="btn btn-secondary" id="downloadBtn" disabled>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Скачать .mcfunction
+                </button>
+            </div>
+
+            <div class="progress-bar" id="progressBar">
+                <div class="progress-bar-fill" id="progressFill"></div>
+            </div>
+        </aside>
+    </div>
+
+    <div class="toast" id="toast">
+        <span class="toast-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></span>
+        <span id="toastText"></span>
+    </div>
+
+    <script src="script.js"></script>
+    <script type="module" src="viewer3d.js"></script>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a2e228b04a081959',t:'MTc4NzIzNjg4Nw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
