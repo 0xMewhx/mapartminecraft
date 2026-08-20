@@ -255,8 +255,8 @@ async function generateLitematic(pixelArtData, orientation) {
     nbt.compoundStart('Regions');
     nbt.compoundStart('PixelArt');
 
-    nbt.listStart('BlockEntities', NBTWriter.COMPOUND, 0);
-    nbt.longArrayTag('Blocks', longArray);
+    nbt.listStart('TileEntities', NBTWriter.COMPOUND, 0);
+    nbt.longArrayTag('BlockStates', longArray);
     nbt.listStart('Entities', NBTWriter.COMPOUND, 0);
     nbt.listStart('PendingBlockTicks', NBTWriter.COMPOUND, 0);
     nbt.listStart('PendingFluidTicks', NBTWriter.COMPOUND, 0);
@@ -274,7 +274,7 @@ async function generateLitematic(pixelArtData, orientation) {
     nbt.compoundEnd();
 
     // Palette
-    nbt.listStart('Palette', NBTWriter.COMPOUND, paletteNames.length);
+    nbt.listStart('BlockStatePalette', NBTWriter.COMPOUND, paletteNames.length);
     for (const name of paletteNames) {
         nbt.stringTag('Name', name);
         nbt.compoundEnd();
