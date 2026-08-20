@@ -250,6 +250,9 @@ async function generateLitematic(pixelArtData, orientation) {
     nbt.writeListStart('Palette', NBTWriter.TAG_COMPOUND, palette.length);
     for (const blockName of palette) {
         nbt.writeStringTag('Name', blockName);
+        // Empty properties (required by some litematica versions)
+        nbt.writeTagHeader(NBTWriter.TAG_COMPOUND, 'Properties');
+        nbt.writeCompoundEnd();
         nbt.writeCompoundEnd(); // end this palette compound
     }
 
@@ -258,6 +261,9 @@ async function generateLitematic(pixelArtData, orientation) {
 
     // MinecraftDataVersion (1.21.1 = 3955)
     nbt.writeIntTag('MinecraftDataVersion', 3955);
+
+    // Version (litematic format version — required at root level)
+    nbt.writeIntTag('Version', 7);
 
     nbt.writeCompoundEnd(); // end root
 
