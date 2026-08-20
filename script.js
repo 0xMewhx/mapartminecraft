@@ -299,17 +299,23 @@
             tbody.appendChild(tr); }
     }
 
-    function downloadMcfunction() {
-        if (!mcfunctionContent) return;
-        const blob = new Blob([mcfunctionContent], { type: 'text/plain' }); const url = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.href = url; a.download = 'screen.mcfunction'; a.click(); URL.revokeObjectURL(url);
-        showToast('Файл screen.mcfunction скачан');
+    async function downloadLitematicFile() {
+        if (!window.pixelArtData) return;
+        try {
+            showToast('Генерация .litematic...');
+            const result = await generateLitematic(window.pixelArtData, currentOrientation);
+            downloadLitematic(result.data, 'pixel_art.litematic');
+            showToast(`Litematic скачан: ${result.totalBlocks.toLocaleString()} блоков, ${result.paletteSize} типов`);
+        } catch (err) {
+            console.error(err);
+            showToast('Ошибка генерации litematic');
+        }
     }
 
     function showToast(text) { const toast = document.getElementById('toast'); document.getElementById('toastText').textContent = text; toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 3500); }
 
     generateBtn.addEventListener('click', () => { generateBtn.disabled = true; generateBtn.innerHTML = '<div class="spinner"></div> Генерация...'; setTimeout(() => { generatePixelArt().finally(() => { generateBtn.disabled = false; generateBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> Сгенерировать'; }); }, 50); });
-    downloadBtn.addEventListener('click', downloadMcfunction);
+    downloadBtn.addEventListener('click', downloadLitematicFile);
     anarchyBtn.addEventListener('click', () => { anarchyBtn.disabled = true; anarchyBtn.innerHTML = '<div class="spinner"></div> Анархия...'; setTimeout(() => { generateAnarchyArt().finally(() => { anarchyBtn.disabled = false; anarchyBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg> Анархия'; }); }, 50); });
 
     initPaletteGrid();
